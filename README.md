@@ -1,47 +1,30 @@
-# Snippets Call/Text By Proxy
-This snippet will show you how to create a bi-directional mask of participants phone numbers for voice and text messages.
-## About Call/Text By Proxy
-If you ever had a situation where you wanted to keep your personal phone number private between two parties, this example will help you out.  Services like Lyft, and Uber use technology like this every day to protect passengers and drivers personal phone numbers.  There are many use cases for this and we hope you find it helpful.
-## Getting Started
-You will need a machine with Python installed, the SignalWire SDK, a provisioned SignalWire phone number, and optionaly Docker if you decide to run it in a container.
+# Call/Text By Proxy
 
-For this demo we will be using Python, but more languages may become available.
+This guide will show you how to create a bi-directional mask of participants' phone numbers for voice and text messages using the [Python SignalWire SDK](https://developer.signalwire.com/twiml/reference/client-libraries-and-sdks#python). If you ever had a situation where you wanted to keep your phone number private between two parties, this example will help you out.  Services like Lyft and Uber use technology like this every day to help protect the personal phone numbers of both passengers and drivers.  There are many use cases for this, and we hope you find it helpful.
 
-- [x] Python
-- [x] SignalWire SDK
-- [x] SignalWire Phone Number
-- [x] Docker (Optional)
-----
-## Running Call/Text By Proxy - How It Works
-## Methods and Endpoints
-
-```
-Endpoint: /lookup-session
-Methods: GET OR POST
-When this is called, it will lookup an active proxy session and bascially create a back to back phone call that is proxied, or a proxied text message.  LEG A <-> SIGNALWIRE PROXY <-> LEG B 
-```
-
-## Setup Your Enviroment File
+# Setup Your Environment File
 
 1. Copy from example.env and fill in your values
-2. Save new file callled .env
+2. Save new file called .env
 
-Your file should look something like this
+Your file should look something like this.
 ```
-## This is the full name of your SignalWire Space. e.g.: example.signalwire.com
+## This is the full name of your SignalWire Space. e.g., example.signalwire.com
 SIGNALWIRE_SPACE=
 # Your Project ID - you can find it on the `API` page in your Dashboard.
 SIGNALWIRE_PROJECT=
 # Your API token - you can generate one on the `API` page in your Dashboard
 SIGNALWIRE_TOKEN=
-# The proxy 1 phone number you'll be using for this Snippets. Must include the `+1` , e$
-SIGNALWIRE_NUMBER_1=+14346613376
-# The proxy 2 phone number you'll be using for this Snippets. Must include the `+1` , e$
-SIGNALWIRE_NUMBER_2=+14346613377
+# The first proxy phone number you'll be using for this guide. Must include the `+1` 
+SIGNALWIRE_NUMBER_1=+1xxxxxxxxxx
+# The second proxy phone number you'll be using for this guide. Must include the `+1` 
+SIGNALWIRE_NUMBER_2=+1xxxxxxxxxx
 ```
 
-## Modify Your Proxy Session File
-1. Edit proxy_sessions.json
+# Modify Your Proxy Session File
+You will need to edit `proxy_sessions.json` to reflect the correct participant numbers and the SignalWire numbers you choose to wish as proxy numbers. 
+
+
 ```javascript
 [
   {
@@ -60,11 +43,73 @@ SIGNALWIRE_NUMBER_2=+14346613377
 
 ```
 
-## Build and Run on Docker
-Lets get started!
+# Step by Step Code Walkthrough
+
+When the `/lookup-session` route is called, it will look up an active proxy session and create a back-to-back phone call that is proxied, or a proxied text message.  **LEG A <-> SIGNALWIRE PROXY <-> LEG B** 
+
+```python
+# Lookup a proxy session by proxy number
+@app.route('/lookup-session', methods=['GET', 'POST'])
+def lookup_session():
+
+    # Initialize SignalWire Client
+    client = signalwire_client(os.environ['SIGNALWIRE_PROJECT'], os.environ['SIGNALWIRE_TOKEN'], signalwire_space_url = os.environ['SIGNALWIRE_SPACE'])
+
+    # Read proxy number from request
+    proxy_number = request.values.get("To")
+
+    # Read participant number from request
+    leg_1 = request.values.get("From")
+
+    # read proxy sessions from json file
+    with open('proxy_sessions.json') as f:
+         sessions = json.load(f)
+
+    # Lookup session, find session that has proxy number and participant that matches
+    for session in sessions:
+
+        # Lookup the second session participant, if A is calling
+        if session["Proxy_Number"] == proxy_number and session["Participant_A_Number"] == leg_1:
+            leg_2 = session["Participant_B_Number"]
+            found = True
+            break
+
+        # Lookup the second session participant, if B is calling
+        elif session["Proxy_Number"] == proxy_number and session["Participant_B_Number"] == leg_1:
+            leg_2 = session["Participant_A_Number"]
+            found = True
+            break
+
+        # We did not find anything yet
+        found = False
+
+    if found == True:
+        # Check if a CallSid exists, if it does, it is a voice call
+        if "CallSid" in request.values.keys():
+            # Bridge legs voice
+            response = VoiceResponse()
+            response.dial(leg_2, callerId = proxy_number)
+            return str(response)
+        # Check if a MessageSid exists, if it does it is a text message
+        elif "MessageSid" in request.values.keys():
+            # Send a message, with challenge code to phone number provided.
+            message = client.messages.create(
+                from_ = proxy_number,
+                body = request.values.get("Body"),
+                to = leg_2
+            )
+            return "200"
+    else:
+        # No session found
+        response = VoiceResponse()
+        response.say("We are sorry but your call can not be completed at this time. Good Bye!")
+        return str(response)
+```
+
+# Build and Run on Docker
+
 1. Use our pre-built image from Docker Hub 
 ```
-For Python:
 docker pull signalwire/snippets-call-text-proxy:python
 ```
 (or build your own image)
@@ -79,24 +124,14 @@ docker run --publish 5000:5000 --env-file .env snippets-call-text-proxy
 ```
 3. The application will run on port 5000
 
-## Build and Run Natively
-For Python
-```
-1. Replace environment variables
-2. From command line run, python3 app.py
-```
+# Build and Run Natively
 
-----
-# More Documentation
-You can find more documentation on LaML, Relay, and all Signalwire APIs at:
-- [SignalWire Python SDK](https://github.com/signalwire/signalwire-python)
-- [SignalWire API Docs](https://docs.signalwire.com)
-- [SignalWire Github](https://gituhb.com/signalwire)
-- [Docker - Getting Started](https://docs.docker.com/get-started/)
-- [Python - Gettings Started](https://docs.python.org/3/using/index.html)
+To run the application, execute export FLASK_APP=app.py then run flask run.
 
-# Support
-If you have any issues or want to engage further about this Signal, please [open an issue on this repo](../../issues) or join our fantastic [Slack community](https://signalwire.community) and chat with others in the SignalWire community!
+You may need to use an SSH tunnel for testing this code if running on your local machine. – we recommend [ngrok](https://ngrok.com/). You can learn more about how to use ngrok [here](https://developer.signalwire.com/apis/docs/how-to-test-webhooks-with-ngrok). 
 
-If you need assistance or support with your SignalWire services please file a support ticket from your Dashboard. 
+# Sign Up Here
 
+If you would like to test this example out, you can create a SignalWire account and space [here](https://m.signalwire.com/signups/new?s=1).
+
+Please feel free to reach out to us on our Community Slack or create a Support ticket if you need guidance!
